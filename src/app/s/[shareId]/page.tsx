@@ -10,13 +10,14 @@ const HOURS = Array.from({ length: 15 }, (_, i) => i + 9);
 export default function SessionPage({ params }: { params: { shareId: string } }) {
   const { shareId } = params;
   const search = useSearchParams();
-  const tz = search.get("tz") || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tz = "UTC";
   const start = search.get("start");
   const end = search.get("end");
 
   const [availability, setAvailability] = useState<Record<string, Set<number>>>({});
   const [participantId, setParticipantId] = useState<string | null>(null);
   const [name, setName] = useState<string>("");
+  const [username, setUsername] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [participants, setParticipants] = useState<Array<{ id: string; name: string; unavailabilities?: { d: string; h: number }[] }>>([]);
   const [participantsCount, setParticipantsCount] = useState<number>(0);
@@ -134,14 +135,21 @@ export default function SessionPage({ params }: { params: { shareId: string } })
       );
       channel.on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'unavailabilities' },
+        sessionId
+          ? { event: '*', schema: 'public', table: 'unavailabilities' }
+          : { event: '*', schema: 'public', table: 'unavailabilities' },
         (_payload) => {
           refreshAggregates();
         }
       );
+      // also poll every 4s as a fallback in case realtime is delayed
+      const interval = setInterval(() => {
+        refreshAggregates();
+      }, 4000);
       channel.subscribe();
       return () => {
         supabase.removeChannel(channel);
+        clearInterval(interval);
       };
     } catch {
       return;
@@ -238,8 +246,26 @@ export default function SessionPage({ params }: { params: { shareId: string } })
   }
 
   async function joinAsParticipant() {
-    if (!name.trim()) {
-      showToast("이름을 입력하세요");
+    // Require login with username first
+    if (!username.trim()) {
+      showToast("아이디(표시 이름)를 입력하세요");
+      return;
+    }
+    const valid = /^[\p{L}\p{N}_\-]{2,24}$/u.test(username.trim());
+    if (!valid) {
+      showToast("아이디 형식이 올바르지 않습니다");
+      return;
+    }
+    // create/login user session
+    try {
+      const res = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: username.trim() }) });
+      if (!res.ok) {
+        showToast("아이디 등록 실패");
+        return;
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("네트워크 오류");
       return;
     }
     setLoading(true);
@@ -247,11 +273,12 @@ export default function SessionPage({ params }: { params: { shareId: string } })
       const res = await fetch(`/api/sessions/${shareId}/participants`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, showDetails: true }),
+        body: JSON.stringify({ name: username.trim(), showDetails: true }),
       });
       const data = await res.json();
       if (res.ok && data.participant?.id) {
         setParticipantId(data.participant.id);
+        setName(username.trim());
         showToast("참가 완료");
       } else {
         showToast("참가자 생성 실패");
@@ -301,13 +328,13 @@ export default function SessionPage({ params }: { params: { shareId: string } })
     <div className="mx-auto max-w-6xl p-6">
       <div className="flex items-baseline justify-between">
         <h1 className="text-xl font-semibold">세션: {shareId}</h1>
-        <div className="text-sm text-gray-600">TZ: {tz}</div>
+        <div className="text-sm text-gray-600"></div>
       </div>
 
       <div className="mt-6 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
         <div>
           <div className="flex items-center justify-between mb-3">
-            <div className="text-sm text-slate-600">{participantId ? "회색=기본, 초록=가능" : "회색=기본, 초록=가능. 먼저 이름 입력 후 참가하세요."}</div>
+            <div className="text-sm text-slate-600">{participantId ? "회색=기본, 초록=가능" : "회색=기본, 초록=가능. 먼저 아이디(표시 이름)로 참가하세요."}</div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2 text-xs text-gray-600">
                 <span>셀 크기</span>
@@ -369,16 +396,16 @@ export default function SessionPage({ params }: { params: { shareId: string } })
           <h3 className="font-medium text-slate-700">공유 & 참가</h3>
           {participantId ? (
             <div className="mt-3 flex items-center gap-2">
-              <div className="px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-sm">{name}</div>
+              <div className="px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-sm">{name || username}</div>
               <div className="px-2 py-1 rounded-lg bg-[#34C759]/20 text-[#1E7F39] text-xs">참여완료</div>
             </div>
           ) : (
             <div className="mt-3 flex gap-2">
               <input
-                placeholder="이름 입력 후 참가"
+                placeholder="아이디(표시 이름, 2-24자, 한글 가능)"
                 className="border rounded-lg px-3 py-2 text-sm flex-1 focus:outline-none focus:ring-2 focus:ring-[#0A84FF]"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
               />
               <button className="border px-3 py-2 rounded-lg text-sm hover:bg-slate-50 hover:border-slate-300" onClick={joinAsParticipant} disabled={loading}>
                 참가하기

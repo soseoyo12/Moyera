@@ -26,7 +26,7 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ shareI
   // For now, fetch all unavailabilities grouped by participant
   const { data, error } = await supabase
     .from("participants")
-    .select("id, name, unavailabilities(d, h)")
+    .select("id, name, created_at, updated_at, unavailabilities(d, h)")
     .eq("session_id", session.id);
 
   if (error) return NextResponse.json({ error: "fetch_failed" }, { status: 500 });
@@ -91,6 +91,12 @@ export async function POST(req: NextRequest, context: { params: Promise<{ shareI
       .insert(unavailable.map((u) => ({ participant_id: body.participantId!, d: u.d, h: u.h })));
     if (insert.error) return NextResponse.json({ error: "insert_failed" }, { status: 500 });
   }
+
+  // mark participant as submitted
+  await supabase
+    .from("participants")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", body.participantId);
 
   return NextResponse.json({ ok: true });
 }

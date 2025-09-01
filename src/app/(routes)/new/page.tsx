@@ -8,7 +8,6 @@ export default function NewSessionPage() {
   const today = new Date();
   const [startDate, setStartDate] = useState<string>(format(today, "yyyy-MM-dd"));
   const [endDate, setEndDate] = useState<string>(format(addDays(today, 6), "yyyy-MM-dd"));
-  const [tz, setTz] = useState<string>(Intl.DateTimeFormat().resolvedOptions().timeZone);
 
   const [isPending, startTransition] = useTransition();
 
@@ -18,11 +17,11 @@ export default function NewSessionPage() {
         const res = await fetch("/api/sessions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tz, start: startDate, end: endDate }),
+          body: JSON.stringify({ start: startDate, end: endDate }),
         });
         const data = await res.json();
         const shareId = data.shareId as string;
-        window.location.href = `/s/${shareId}?tz=${encodeURIComponent(tz)}&start=${startDate}&end=${endDate}`;
+        window.location.href = `/s/${shareId}?start=${startDate}&end=${endDate}`;
       } catch (e) {
         console.error(e);
       }
@@ -32,9 +31,6 @@ export default function NewSessionPage() {
   return (
     <div className="mx-auto max-w-xl p-6 space-y-4 bg-white rounded shadow-sm mt-6">
       <h1 className="text-xl font-semibold">세션 생성</h1>
-
-      <label className="block text-sm font-medium">타임존</label>
-      <input className="border rounded px-3 py-2 w-full" value={tz} onChange={(e) => setTz(e.target.value)} />
 
       <div className="grid grid-cols-2 gap-4">
         <div>

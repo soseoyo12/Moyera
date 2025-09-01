@@ -7,8 +7,7 @@ function assertSupabaseConfigured() {
   return Boolean(url && serviceKey);
 }
 
-type RouteContext = { params: { shareId: string } };
-export async function GET(_req: Request, context: RouteContext) {
+export async function GET(_req: Request, context: { params: { shareId: string } }) {
   if (!assertSupabaseConfigured()) {
     return NextResponse.json({ error: "supabase_not_configured" }, { status: 500 });
   }
@@ -34,7 +33,7 @@ export async function GET(_req: Request, context: RouteContext) {
   return NextResponse.json({ participants });
 }
 
-export async function POST(req: Request, context: RouteContext) {
+export async function POST(req: Request, context: { params: { shareId: string } }) {
   if (!assertSupabaseConfigured()) {
     return NextResponse.json({ error: "supabase_not_configured" }, { status: 500 });
   }

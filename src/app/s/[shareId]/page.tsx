@@ -15,7 +15,6 @@ export default function SessionPage({ params }: { params: { shareId: string } })
   const end = search.get("end");
 
   const [availability, setAvailability] = useState<Record<string, Set<number>>>({});
-  const storageKey = `moyera:${shareId}:availability`;
   const [participantId, setParticipantId] = useState<string | null>(null);
   const [name, setName] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
@@ -29,22 +28,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [cellSize, setCellSize] = useState<number>(32);
 
-  // Load from localStorage
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = window.localStorage.getItem(storageKey);
-      if (!raw) return;
-      const parsed: Record<string, number[]> = JSON.parse(raw);
-      const restored: Record<string, Set<number>> = {};
-      for (const [d, arr] of Object.entries(parsed)) {
-        restored[d] = new Set(arr);
-      }
-      setAvailability(restored);
-    } catch (e) {
-      console.warn("Failed to parse local data", e);
-    }
-  }, [storageKey]);
+  // Local storage removed per request
 
   // Load session and optionally existing participants (for future use)
   useEffect(() => {
@@ -174,7 +158,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
     return list;
   }, [start, end]);
 
-  function toggle(d: string, h: number) {
+  async function toggle(d: string, h: number) {
     setAvailability((prev) => {
       const copy: Record<string, Set<number>> = { ...prev };
       const set = new Set(copy[d] || []);
@@ -182,6 +166,12 @@ export default function SessionPage({ params }: { params: { shareId: string } })
       copy[d] = set;
       return copy;
     });
+    // Auto save after each toggle if joined
+    if (participantId) {
+      await saveToServer();
+    } else {
+      showToast("먼저 이름 입력 후 참가하세요");
+    }
   }
 
   function beginDrag(d: string, h: number) {
@@ -192,7 +182,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
     applyDragToCell(d, h);
   }
 
-  function applyDragToCell(d: string, h: number) {
+  async function applyDragToCell(d: string, h: number) {
     setAvailability((prev) => {
       const copy: Record<string, Set<number>> = { ...prev };
       const set = new Set(copy[d] || []);
@@ -200,6 +190,27 @@ export default function SessionPage({ params }: { params: { shareId: string } })
       copy[d] = set;
       return copy;
     });
+    if (participantId) {
+      await saveToServer();
+    }
+  }
+
+  function handleTouchStart(e: React.TouchEvent<HTMLTableCellElement>, d: string, h: number) {
+    e.preventDefault();
+    beginDrag(d, h);
+  }
+
+  function handleTouchMove(e: React.TouchEvent<HTMLDivElement>) {
+    const t = e.touches && e.touches[0];
+    if (!t) return;
+    const el = document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null;
+    const td = el?.closest('td[data-d][data-h]') as HTMLElement | null;
+    if (!td) return;
+    const d = td.getAttribute('data-d');
+    const hAttr = td.getAttribute('data-h');
+    if (!d || !hAttr) return;
+    const hour = parseInt(hAttr, 10);
+    applyDragToCell(d, hour);
   }
 
   function endDrag() {
@@ -211,14 +222,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
     applyDragToCell(d, h);
   }
 
-  function saveLocal() {
-    const serializable: Record<string, number[]> = {};
-    for (const [d, set] of Object.entries(availability)) {
-      serializable[d] = Array.from(set).sort((a, b) => a - b);
-    }
-    window.localStorage.setItem(storageKey, JSON.stringify(serializable));
-    showToast("로컬에 저장되었습니다");
-  }
+  // local save removed
 
   async function copyLink() {
     const url = typeof window !== "undefined" ? window.location.href : "";
@@ -264,9 +268,10 @@ export default function SessionPage({ params }: { params: { shareId: string } })
     }
     const payload: { d: string; h: number }[] = [];
     for (const d of days) {
-      const set = availability[d];
-      if (!set) continue;
-      for (const h of set) payload.push({ d, h });
+      const set = availability[d] || new Set<number>();
+      for (const h of HOURS) {
+        if (!set.has(h)) payload.push({ d, h });
+      }
     }
     setLoading(true);
     try {
@@ -300,7 +305,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
       <div className="mt-6 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
         <div>
           <div className="flex items-center justify-between mb-3">
-            <div className="text-sm text-gray-700">불가 시간은 회색, 가능은 파랑입니다. 드래그하여 빠르게 선택하세요.</div>
+            <div className="text-sm text-slate-600">{participantId ? "회색=기본, 초록=가능" : "회색=기본, 초록=가능. 먼저 이름 입력 후 참가하세요."}</div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2 text-xs text-gray-600">
                 <span>셀 크기</span>
@@ -320,35 +325,35 @@ export default function SessionPage({ params }: { params: { shareId: string } })
             className="overflow-x-auto select-none rounded border bg-white"
             onMouseUp={endDrag}
             onMouseLeave={endDrag}
+            onTouchMove={handleTouchMove}
           >
-            <table className="w-full table-fixed border-collapse rounded">
+            <table className="w-full table-fixed border-collapse rounded overflow-hidden">
               <thead className="sticky top-0 bg-white">
                 <tr>
-                  <th className="sticky left-0 bg-white text-left p-2 text-sm text-gray-500 z-10">시간</th>
+                  <th className="sticky left-0 bg-white/90 backdrop-blur text-left p-2 text-xs font-medium text-slate-500 z-10">시간</th>
                   {days.map((d) => (
-                    <th key={`day-hdr-${d}`} className="text-xs text-gray-700 p-1 font-medium">
-                      <div className="flex items-center justify-center">
-                        <span>{d}</span>
-                      </div>
-                    </th>
+                    <th key={`day-hdr-${d}`} className="text-xs text-slate-700 p-2 font-medium text-center">{d}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {HOURS.map((h) => (
                   <tr key={`row-${h}`}>
-                    <td className="sticky left-0 bg-white p-2 text-sm whitespace-nowrap text-gray-600 z-10">{h}:00</td>
+                    <td className="sticky left-0 bg-white/90 backdrop-blur p-2 text-xs whitespace-nowrap text-slate-600 z-10">{h}:00</td>
                     {days.map((d) => {
                       const selected = availability[d]?.has(h);
                       return (
                         <td
                           key={`${d}-${h}`}
-                          className={`text-center align-middle cursor-pointer border rounded ${selected ? "bg-green-400" : "bg-slate-200 hover:bg-slate-300"}`}
+                          className={`text-center align-middle cursor-pointer border border-slate-200 ${selected ? "bg-[#34C759]" : "bg-slate-100 hover:bg-slate-200"}`}
                           style={{ width: cellSize, height: cellSize, minWidth: cellSize, minHeight: cellSize }}
                           onMouseDown={() => beginDrag(d, h)}
                           onMouseEnter={() => onCellMouseEnter(d, h)}
                           onClick={() => toggle(d, h)}
+                          onTouchStart={(e) => handleTouchStart(e, d, h)}
                           title={`${d} ${h}:00 ${selected ? "가능" : "기본(미선택)"}`}
+                          data-d={d}
+                          data-h={h}
                         />
                       );
                     })}
@@ -358,27 +363,28 @@ export default function SessionPage({ params }: { params: { shareId: string } })
             </table>
           </div>
         </div>
-        <aside className="lg:border rounded p-4 lg:sticky lg:top-4 h-fit">
-          <h3 className="font-medium">공유 & 참가</h3>
-          <div className="mt-3 flex gap-2">
-            <input
-              placeholder="이름 입력 후 참가"
-              className="border rounded px-3 py-2 text-sm flex-1"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <button className="border px-3 py-2 rounded text-sm hover:bg-blue-50 hover:border-blue-300" onClick={joinAsParticipant} disabled={loading}>
-              참가하기
-            </button>
-          </div>
+        <aside className="lg:border rounded-xl p-4 lg:sticky lg:top-4 h-fit bg-white/70 backdrop-blur">
+          <h3 className="font-medium text-slate-700">공유 & 참가</h3>
+          {participantId ? (
+            <div className="mt-3 flex items-center gap-2">
+              <div className="px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-sm">{name}</div>
+              <div className="px-2 py-1 rounded-lg bg-[#34C759]/20 text-[#1E7F39] text-xs">참여완료</div>
+            </div>
+          ) : (
+            <div className="mt-3 flex gap-2">
+              <input
+                placeholder="이름 입력 후 참가"
+                className="border rounded-lg px-3 py-2 text-sm flex-1 focus:outline-none focus:ring-2 focus:ring-[#0A84FF]"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+              <button className="border px-3 py-2 rounded-lg text-sm hover:bg-slate-50 hover:border-slate-300" onClick={joinAsParticipant} disabled={loading}>
+                참가하기
+              </button>
+            </div>
+          )}
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <button className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm" onClick={saveLocal}>
-              로컬 저장
-            </button>
-            <button className="border px-3 py-2 rounded text-sm hover:bg-blue-50 hover:border-blue-300" onClick={saveToServer} disabled={loading || !participantId}>
-              서버 저장
-            </button>
-            <button className="border px-3 py-2 rounded text-sm col-span-2 hover:bg-blue-50 hover:border-blue-300" onClick={copyLink}>공유 링크 복사</button>
+            <button className="border px-3 py-2 rounded-lg text-sm col-span-2 hover:bg-slate-50 hover:border-slate-300" onClick={copyLink}>링크 복사</button>
           </div>
           <div className="mt-5">
             <h4 className="text-sm font-medium">참여자 ({participantsCount})</h4>
@@ -397,24 +403,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
         </aside>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2 items-center">
-        <input
-          placeholder="이름 입력 후 참가"
-          className="border rounded px-3 py-2 text-sm"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <button className="border px-3 py-2 rounded text-sm" onClick={joinAsParticipant} disabled={loading}>
-          참가하기
-        </button>
-        <button className="bg-black text-white px-3 py-2 rounded text-sm" onClick={saveLocal}>
-          변경사항 저장 (로컬)
-        </button>
-        <button className="border px-3 py-2 rounded text-sm" onClick={saveToServer} disabled={loading || !participantId}>
-          서버에 저장
-        </button>
-        <button className="border px-3 py-2 rounded text-sm" onClick={copyLink}>공유 링크 복사</button>
-      </div>
+      {/* 버튼 줄 제거 per request */}
 
       <section className="mt-10">
         <h2 className="text-lg font-semibold">결과 히트맵</h2>

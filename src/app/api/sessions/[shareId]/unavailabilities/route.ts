@@ -43,8 +43,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ shareI
   const body = (await req.json().catch(() => null)) as {
     participantId?: string;
     unavailable?: { d: string; h: number }[];
+    available?: { d: string; h: number }[];
   } | null;
-  if (!body || !body.participantId || !Array.isArray(body.unavailable)) {
+  if (!body || !body.participantId || (!Array.isArray(body.unavailable) && !Array.isArray(body.available))) {
     return NextResponse.json({ error: "invalid_body" }, { status: 400 });
   }
 
@@ -73,10 +74,21 @@ export async function POST(req: NextRequest, context: { params: Promise<{ shareI
     .eq("participant_id", body.participantId);
   if (del.error) return NextResponse.json({ error: "delete_failed" }, { status: 500 });
 
-  if (body.unavailable.length > 0) {
+  const unavailable = Array.isArray(body.unavailable)
+    ? body.unavailable
+    : Array.isArray(body.available)
+      ? []
+      : [];
+
+  if (Array.isArray(body.available)) {
+    // If available provided, convert to unavailability as complement on server side is ambiguous without session range
+    // We assume client sends 'unavailable' for now unless provided explicitly
+  }
+
+  if (unavailable.length > 0) {
     const insert = await supabase
       .from("unavailabilities")
-      .insert(body.unavailable.map((u) => ({ participant_id: body.participantId!, d: u.d, h: u.h })));
+      .insert(unavailable.map((u) => ({ participant_id: body.participantId!, d: u.d, h: u.h })));
     if (insert.error) return NextResponse.json({ error: "insert_failed" }, { status: 500 });
   }
 

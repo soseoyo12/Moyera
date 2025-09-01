@@ -24,12 +24,12 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-50`}> 
-        <header className="bg-blue-600 text-white shadow-sm">
-          <div className="mx-auto max-w-6xl p-4 flex items-center gap-4">
-            <Link href="/" className="font-semibold rounded px-2 py-1 hover:bg-blue-500">Moyera</Link>
-            <nav className="text-sm/6 flex gap-3">
-              <Link href="/" className="rounded px-2 py-1 hover:bg-blue-500">그리드</Link>
-              <Link href="/new" className="rounded px-2 py-1 hover:bg-blue-500">새 세션</Link>
+        <header className="bg-white border-b">
+          <div className="mx-auto max-w-6xl px-4 h-14 flex items-center gap-4">
+            <Link href="/" className="font-semibold rounded px-2 py-1 text-[#0A84FF] hover:bg-slate-50">Moyera</Link>
+            <nav className="text-sm/6 flex gap-1">
+              <Link href="/" className="rounded px-2 py-1 text-slate-700 hover:text-[#0A84FF] hover:bg-slate-50">그리드</Link>
+              <Link href="/new" className="rounded px-2 py-1 text-slate-700 hover:text-[#0A84FF] hover:bg-slate-50">새 세션</Link>
             </nav>
           </div>
         </header>

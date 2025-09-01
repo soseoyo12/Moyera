@@ -34,13 +34,13 @@ export async function POST(req: NextRequest) {
   const { error: sErr } = await supabase
     .from("user_sessions")
     .insert({ token, user_id: userId, expires_at: expires.toISOString() });
-  if (sErr) return NextResponse.json({ error: "session_failed" }, { status: 500 });
+  if (sErr) return NextResponse.json({ error: "session_failed", details: sErr.message }, { status: 500 });
 
   const res = NextResponse.json({ ok: true });
   res.cookies.set("moyera_session", token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: true,
+    secure: process.env.NODE_ENV === 'production',
     path: "/",
     expires,
   });

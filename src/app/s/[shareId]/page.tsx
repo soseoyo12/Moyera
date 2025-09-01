@@ -265,7 +265,11 @@ export default function SessionPage({ params }: { params: { shareId: string } })
     try {
       const res = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: username.trim() }) });
       if (!res.ok) {
-        showToast("아이디 등록 실패");
+        const err = await res.json().catch(() => ({} as any));
+        if (err?.error === 'invalid_username') showToast("아이디 형식 오류");
+        else if (err?.error === 'session_failed') showToast("세션 생성 실패");
+        else if (err?.error === 'lookup_failed') showToast("아이디 조회 실패");
+        else showToast("아이디 등록 실패");
         return;
       }
     } catch (e) {

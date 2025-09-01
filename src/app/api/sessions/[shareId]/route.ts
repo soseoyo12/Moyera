@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
+type RouteParams = { params: { shareId: string } };
 export async function GET(
-  _req: NextRequest,
-  { params }: { params: { shareId: string } }
+  _req: Request,
+  { params }: RouteParams
 ) {
   const { shareId } = params;
 

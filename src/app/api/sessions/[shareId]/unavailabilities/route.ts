@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 function assertSupabaseConfigured() {
@@ -7,7 +7,8 @@ function assertSupabaseConfigured() {
   return Boolean(url && serviceKey);
 }
 
-export async function GET(_req: NextRequest, { params }: { params: { shareId: string } }) {
+type RouteParams = { params: { shareId: string } };
+export async function GET(_req: Request, { params }: RouteParams) {
   if (!assertSupabaseConfigured()) {
     return NextResponse.json({ error: "supabase_not_configured" }, { status: 500 });
   }
@@ -33,7 +34,7 @@ export async function GET(_req: NextRequest, { params }: { params: { shareId: st
   return NextResponse.json({ participants: data });
 }
 
-export async function POST(req: NextRequest, { params }: { params: { shareId: string } }) {
+export async function POST(req: Request, { params }: RouteParams) {
   if (!assertSupabaseConfigured()) {
     return NextResponse.json({ error: "supabase_not_configured" }, { status: 500 });
   }

@@ -64,7 +64,8 @@ export default function SessionPage({ params }: { params: { shareId: string } })
 
   function computeHeatmapAndBest(list: Array<{ id: string; name: string; unavailabilities?: { d: string; h: number }[] }>) {
     const unavailableByKey = new Map<string, Set<string>>(); // key = `${d}-${h}`, value = set of participantId
-    for (const p of list) {
+    const submitted = list.filter((p) => (p.unavailabilities?.length || 0) > 0);
+    for (const p of submitted) {
       const arr = p.unavailabilities || [];
       for (const u of arr) {
         const key = `${u.d}-${u.h}`;
@@ -82,7 +83,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
       for (const h of HOURS) {
         const key = `${d}-${h}`;
         const unavailableCount = unavailableByKey.get(key)?.size || 0;
-        const availableCount = Math.max(0, list.length - unavailableCount);
+        const availableCount = Math.max(0, submitted.length - unavailableCount);
         heat[d][h] = availableCount;
       }
     }
@@ -93,7 +94,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
     for (const d of days) {
       let runStart: number | null = null;
       for (const h of HOURS) {
-        const isFull = heat[d]?.[h] === list.length && list.length > 0;
+        const isFull = heat[d]?.[h] === submitted.length && submitted.length > 0;
         if (isFull) {
           if (runStart === null) runStart = h;
         } else {
@@ -113,6 +114,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
     }
     fullBlocks.sort((a, b) => b.length - a.length);
     setBestBlocks(fullBlocks.slice(0, 10));
+    setParticipantsCount(submitted.length);
   }
 
   // Realtime subscribe
@@ -411,19 +413,19 @@ export default function SessionPage({ params }: { params: { shareId: string } })
           <p className="text-sm text-gray-600 mt-2">참여자가 아직 없습니다.</p>
         ) : (
           <div className="overflow-x-auto mt-4">
-            <table className="min-w-full border-collapse">
-              <thead>
+            <table className="w-full table-fixed border-collapse">
+              <thead className="sticky top-0 bg-white">
                 <tr>
-                  <th className="text-left p-2 text-sm text-gray-500">시간</th>
+                  <th className="sticky left-0 bg-white/90 backdrop-blur text-left p-2 text-xs font-medium text-slate-500 z-10" style={{width: "56px"}}>시간</th>
                   {days.map((d) => (
-                    <th key={`hm-day-${d}`} className="text-xs text-gray-700 p-1 font-medium">{d}</th>
+                    <th key={`hm-day-${d}`} className="text-xs text-slate-700 p-2 font-medium text-center">{d}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {HOURS.map((h) => (
                   <tr key={`hm-row-${h}`}>
-                    <td className="p-2 text-sm whitespace-nowrap text-gray-600">{h}:00</td>
+                    <td className="sticky left-0 bg-white/90 backdrop-blur p-2 text-xs whitespace-nowrap text-slate-600 z-10" style={{width: "56px"}}>{h}:00</td>
                     {days.map((d) => {
                       const available = heatmap[d]?.[h] ?? 0;
                       const ratio = participantsCount > 0 ? available / participantsCount : 0;
@@ -434,14 +436,14 @@ export default function SessionPage({ params }: { params: { shareId: string } })
                       else if (ratio > 0) cls = "bg-green-200";
                       else cls = "bg-slate-200";
                       return (
-                        <td key={`hm-${d}-${h}`} className={`w-6 h-6 border ${cls}`} title={`${available}/${participantsCount}`} />
+                        <td key={`hm-${d}-${h}`} className={`h-6 border ${cls}`} title={`${available}/${participantsCount}`} />
                       );
                     })}
                   </tr>
                 ))}
               </tbody>
             </table>
-            <div className="mt-2 text-xs text-gray-600">색상: 회색(0) → 파랑(진해질수록 더 많은 가능 인원)</div>
+            <div className="mt-2 text-xs text-gray-600">색상: 회색(0) → 초록(진해질수록 더 많은 가능 인원)</div>
           </div>
         )}
       </section>

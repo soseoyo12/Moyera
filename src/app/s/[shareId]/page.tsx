@@ -268,7 +268,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: username.trim(), showDetails: true }),
       });
-      let data: { participant?: { id?: string } } | { error?: string } = {};
+      let data: { participant?: { id?: string }; error?: string } = {};
       try {
         data = await res.json();
       } catch {

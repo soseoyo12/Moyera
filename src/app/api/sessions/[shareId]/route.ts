@@ -3,9 +3,9 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET(
   _req: NextRequest,
-  context: { params: Promise<{ shareId: string }> }
+  { params }: { params: { shareId: string } }
 ) {
-  const { shareId } = await context.params;
+  const { shareId } = params;
 
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

@@ -175,7 +175,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
   }, [start, end]);
 
   function toggle(d: string, h: number) {
-    setUnavailability((prev) => {
+    setAvailability((prev) => {
       const copy: Record<string, Set<number>> = { ...prev };
       const set = new Set(copy[d] || []);
       if (set.has(h)) set.delete(h); else set.add(h);
@@ -185,18 +185,18 @@ export default function SessionPage({ params }: { params: { shareId: string } })
   }
 
   function beginDrag(d: string, h: number) {
-    const currentlySelected = unavailability[d]?.has(h) ?? false;
+    const currentlySelected = availability[d]?.has(h) ?? false;
     const willBeSelected = !currentlySelected;
     dragActiveRef.current = true;
-    dragSetToUnavailableRef.current = willBeSelected;
+    dragSetToAvailableRef.current = willBeSelected;
     applyDragToCell(d, h);
   }
 
   function applyDragToCell(d: string, h: number) {
-    setUnavailability((prev) => {
+    setAvailability((prev) => {
       const copy: Record<string, Set<number>> = { ...prev };
       const set = new Set(copy[d] || []);
-      if (dragSetToUnavailableRef.current) set.add(h); else set.delete(h);
+      if (dragSetToAvailableRef.current) set.add(h); else set.delete(h);
       copy[d] = set;
       return copy;
     });
@@ -213,7 +213,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
 
   function saveLocal() {
     const serializable: Record<string, number[]> = {};
-    for (const [d, set] of Object.entries(unavailability)) {
+    for (const [d, set] of Object.entries(availability)) {
       serializable[d] = Array.from(set).sort((a, b) => a - b);
     }
     window.localStorage.setItem(storageKey, JSON.stringify(serializable));
@@ -264,7 +264,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
     }
     const payload: { d: string; h: number }[] = [];
     for (const d of days) {
-      const set = unavailability[d];
+      const set = availability[d];
       if (!set) continue;
       for (const h of set) payload.push({ d, h });
     }
@@ -283,25 +283,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
     }
   }
 
-  function markDayUnavailable(d: string) {
-    setUnavailability((prev) => {
-      const copy: Record<string, Set<number>> = { ...prev };
-      copy[d] = new Set(HOURS);
-      return copy;
-    });
-  }
-
-  function clearDay(d: string) {
-    setUnavailability((prev) => {
-      const copy: Record<string, Set<number>> = { ...prev };
-      copy[d] = new Set();
-      return copy;
-    });
-  }
-
-  function clearAll() {
-    setUnavailability({});
-  }
+  // removed day/global reset helpers per request
 
   function showToast(message: string) {
     setToast(message);
@@ -357,16 +339,16 @@ export default function SessionPage({ params }: { params: { shareId: string } })
                   <tr key={`row-${h}`}>
                     <td className="sticky left-0 bg-white p-2 text-sm whitespace-nowrap text-gray-600 z-10">{h}:00</td>
                     {days.map((d) => {
-                      const selected = unavailability[d]?.has(h);
+                      const selected = availability[d]?.has(h);
                       return (
                         <td
                           key={`${d}-${h}`}
-                          className={`text-center align-middle cursor-pointer border rounded ${selected ? "bg-slate-300" : "bg-green-300 hover:bg-green-400"}`}
+                          className={`text-center align-middle cursor-pointer border rounded ${selected ? "bg-green-400" : "bg-slate-200 hover:bg-slate-300"}`}
                           style={{ width: cellSize, height: cellSize, minWidth: cellSize, minHeight: cellSize }}
                           onMouseDown={() => beginDrag(d, h)}
                           onMouseEnter={() => onCellMouseEnter(d, h)}
                           onClick={() => toggle(d, h)}
-                          title={`${d} ${h}:00 ${selected ? "불가" : "가능"}`}
+                          title={`${d} ${h}:00 ${selected ? "가능" : "기본(미선택)"}`}
                         />
                       );
                     })}

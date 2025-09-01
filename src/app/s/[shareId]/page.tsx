@@ -169,6 +169,10 @@ export default function SessionPage({ params }: { params: { shareId: string } })
   }, [start, end]);
 
   async function toggle(d: string, h: number) {
+    if (!participantId) {
+      showToast("먼저 아이디로 참가하세요");
+      return;
+    }
     setAvailability((prev) => {
       const copy: Record<string, Set<number>> = { ...prev };
       const set = new Set(copy[d] || []);
@@ -177,14 +181,14 @@ export default function SessionPage({ params }: { params: { shareId: string } })
       return copy;
     });
     // Auto save after each toggle if joined
-    if (participantId) {
-      await saveToServer();
-    } else {
-      showToast("먼저 이름 입력 후 참가하세요");
-    }
+    await saveToServer();
   }
 
   function beginDrag(d: string, h: number) {
+    if (!participantId) {
+      showToast("먼저 아이디로 참가하세요");
+      return;
+    }
     const currentlySelected = availability[d]?.has(h) ?? false;
     const willBeSelected = !currentlySelected;
     dragActiveRef.current = true;
@@ -211,6 +215,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
   }
 
   function handleTouchMove(e: React.TouchEvent<HTMLDivElement>) {
+    if (!participantId || !dragActiveRef.current) return;
     const t = e.touches && e.touches[0];
     if (!t) return;
     const el = document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null;
@@ -355,6 +360,8 @@ export default function SessionPage({ params }: { params: { shareId: string } })
             onMouseUp={endDrag}
             onMouseLeave={endDrag}
             onTouchMove={handleTouchMove}
+            onTouchEnd={endDrag}
+            onTouchCancel={endDrag}
           >
             <table className="w-full table-fixed border-collapse rounded overflow-hidden">
               <thead className="sticky top-0 bg-white">

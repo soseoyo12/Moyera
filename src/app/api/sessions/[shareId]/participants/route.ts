@@ -54,6 +54,16 @@ export async function POST(req: NextRequest, context: { params: Promise<{ shareI
   if (sessionErr) return NextResponse.json({ error: "fetch_session_failed" }, { status: 500 });
   if (!session) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
+  // Enforce per-session unique name
+  const { data: dup, error: dupErr } = await supabase
+    .from("participants")
+    .select("id")
+    .eq("session_id", session.id)
+    .eq("name", name)
+    .maybeSingle();
+  if (dupErr) return NextResponse.json({ error: "name_check_failed" }, { status: 500 });
+  if (dup) return NextResponse.json({ error: "name_taken" }, { status: 409 });
+
   const { data, error } = await supabase
     .from("participants")
     .insert({ session_id: session.id, name, show_details: showDetails ?? true })

@@ -7,10 +7,13 @@ export async function GET(req: NextRequest) {
   const supabase = getSupabaseServerClient();
   const { data, error } = await supabase
     .from("user_sessions")
-    .select("users:id,users!inner(username)")
+    .select("token, expires_at, users:users!inner(id, username)")
     .eq("token", token)
     .gt("expires_at", new Date().toISOString())
     .maybeSingle();
-  if (error || !data) return NextResponse.json({ user: null });
-  return NextResponse.json({ user: { id: data.users.id, username: data.users.username } });
+  if (error || !data || !data.users) return NextResponse.json({ user: null });
+  const u = Array.isArray((data as unknown as { users: unknown }).users)
+    ? ((data as unknown as { users: { id: string; username: string }[] }).users[0])
+    : ((data as unknown as { users: { id: string; username: string } }).users);
+  return NextResponse.json({ user: { id: u.id, username: u.username } });
 }

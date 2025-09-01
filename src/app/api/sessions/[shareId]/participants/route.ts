@@ -42,8 +42,13 @@ export async function POST(req: NextRequest, context: { params: Promise<{ shareI
   const { shareId } = await context.params;
   const body = await req.json().catch(() => ({}));
   const { name, showDetails } = body as { name?: string; showDetails?: boolean };
-  if (!name || typeof name !== "string") {
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+  if (!trimmed) {
     return NextResponse.json({ error: "name_required" }, { status: 400 });
+  }
+  // Allow Korean and most letters/numbers/underscore/hyphen, 2-24 length
+  if (!/^[\p{L}\p{N}_\-]{2,24}$/u.test(trimmed)) {
+    return NextResponse.json({ error: "invalid_name" }, { status: 400 });
   }
 
   const { data: session, error: sessionErr } = await supabase
@@ -59,14 +64,14 @@ export async function POST(req: NextRequest, context: { params: Promise<{ shareI
     .from("participants")
     .select("id")
     .eq("session_id", session.id)
-    .eq("name", name)
+    .eq("name", trimmed)
     .maybeSingle();
   if (dupErr) return NextResponse.json({ error: "name_check_failed" }, { status: 500 });
   if (dup) return NextResponse.json({ error: "name_taken" }, { status: 409 });
 
   const { data, error } = await supabase
     .from("participants")
-    .insert({ session_id: session.id, name, show_details: showDetails ?? true })
+    .insert({ session_id: session.id, name: trimmed, show_details: showDetails ?? true })
     .select("id, name, show_details")
     .single();
 

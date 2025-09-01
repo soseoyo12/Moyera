@@ -251,7 +251,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
   }
 
   async function joinAsParticipant() {
-    // Require login with username first
+    // No login. The entered ID is the participant name.
     if (!username.trim()) {
       showToast("아이디(표시 이름)를 입력하세요");
       return;
@@ -261,22 +261,6 @@ export default function SessionPage({ params }: { params: { shareId: string } })
       showToast("아이디 형식이 올바르지 않습니다");
       return;
     }
-    // create/login user session
-    try {
-      const res = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: username.trim() }) });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({} as any));
-        if (err?.error === 'invalid_username') showToast("아이디 형식 오류");
-        else if (err?.error === 'session_failed') showToast("세션 생성 실패");
-        else if (err?.error === 'lookup_failed') showToast("아이디 조회 실패");
-        else showToast("아이디 등록 실패");
-        return;
-      }
-    } catch (e) {
-      console.error(e);
-      showToast("네트워크 오류");
-      return;
-    }
     setLoading(true);
     try {
       const res = await fetch(`/api/sessions/${shareId}/participants`, {
@@ -284,16 +268,24 @@ export default function SessionPage({ params }: { params: { shareId: string } })
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: username.trim(), showDetails: true }),
       });
-      const data = await res.json();
+      let data: { participant?: { id?: string } } | { error?: string } = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = {};
+      }
       if (res.ok && data.participant?.id) {
         setParticipantId(data.participant.id);
         setName(username.trim());
         showToast("참가 완료");
+      } else if (res.status === 409 || data?.error === 'name_taken') {
+        showToast("이미 사용 중인 아이디입니다");
       } else {
         showToast("참가자 생성 실패");
       }
     } catch (e) {
       console.error(e);
+      showToast("네트워크 오류");
     } finally {
       setLoading(false);
     }

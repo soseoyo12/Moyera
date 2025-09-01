@@ -5,30 +5,13 @@ create table if not exists public.sessions (
   tz text not null,
   start_date date not null,
   end_date date not null,
-  created_by uuid,
   created_at timestamptz not null default now()
-);
-
--- Users table (username-only, unique)
-create table if not exists public.users (
-  id uuid primary key default gen_random_uuid(),
-  username text unique not null,
-  created_at timestamptz not null default now()
-);
-
--- User sessions (simple token-based session)
-create table if not exists public.user_sessions (
-  token text primary key,
-  user_id uuid not null references public.users(id) on delete cascade,
-  created_at timestamptz not null default now(),
-  expires_at timestamptz
 );
 
 -- Participants table
 create table if not exists public.participants (
   id uuid primary key default gen_random_uuid(),
   session_id uuid not null references public.sessions(id) on delete cascade,
-  user_id uuid,
   name text not null,
   show_details boolean not null default true,
   created_at timestamptz not null default now(),

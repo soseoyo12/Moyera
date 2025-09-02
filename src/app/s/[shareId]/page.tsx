@@ -35,6 +35,7 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
   const [calendarEvents, setCalendarEvents] = useState<Array<{ id: string; summary: string; start: string; end: string }>>([]);
   const [isLoadingCalendar, setIsLoadingCalendar] = useState<boolean>(false);
+  const [conflictLabels, setConflictLabels] = useState<Record<string, Record<number, string[]>>>({});
 
   // Local storage removed per request
 
@@ -612,8 +613,9 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
       nextAvailability[d] = new Set<number>(HOURS);
     }
 
-    // 2) 이벤트가 겹치는 시간대를 '불가능'으로 삭제
+    // 2) 이벤트가 겹치는 시간대를 '불가능'으로 삭제 + 라벨 수집
     let removedCount = 0;
+    const nextLabels: Record<string, Record<number, string[]>> = {};
     for (const ev of events) {
       const eventStart = new Date(ev.start);
       const eventEnd = new Date(ev.end);
@@ -630,12 +632,19 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
               nextAvailability[d].delete(h);
               removedCount++;
             }
+            if (!nextLabels[d]) nextLabels[d] = {};
+            if (!nextLabels[d][h]) nextLabels[d][h] = [];
+            const label = ev.summary || '이벤트';
+            if (!nextLabels[d][h].includes(label)) {
+              nextLabels[d][h].push(label);
+            }
           }
         }
       }
     }
 
     setAvailability(nextAvailability);
+    setConflictLabels(nextLabels);
     if (participantId) {
       updateLocalHeatmap(nextAvailability);
       await saveToServerWithState(nextAvailability);
@@ -781,7 +790,7 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
                       return (
                         <td
                           key={`${d}-${h}`}
-                          className={`text-center align-middle cursor-pointer border border-slate-200 ${selected ? "bg-[#34C759]" : "bg-slate-100 hover:bg-slate-200"}`}
+                          className={`relative text-center align-middle cursor-pointer border border-slate-200 ${selected ? "bg-[#34C759]" : "bg-slate-100 hover:bg-slate-200"}`}
                           style={{ width: cellSize, height: cellSize, minWidth: cellSize, minHeight: cellSize }}
                           onMouseDown={() => beginDrag(d, h)}
                           onMouseEnter={() => onCellMouseEnter(d, h)}
@@ -789,7 +798,16 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
                           title={`${d} ${h}:00 ${selected ? "가능" : "기본(미선택)"}`}
                           data-d={d}
                           data-h={h}
-                        />
+                        >
+                          {!selected && conflictLabels[d]?.[h]?.length ? (
+                            <div className="absolute inset-0 px-1 py-0.5 overflow-hidden">
+                              <div className="text-[10px] leading-tight text-blue-700 line-clamp-2 text-left">
+                                {conflictLabels[d][h].slice(0,2).join(', ')}
+                                {conflictLabels[d][h].length > 2 ? '…' : ''}
+                              </div>
+                            </div>
+                          ) : null}
+                        </td>
                       );
                     })}
                   </tr>

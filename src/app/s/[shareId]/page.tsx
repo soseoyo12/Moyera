@@ -36,6 +36,7 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
   const [calendarEvents, setCalendarEvents] = useState<Array<{ id: string; summary: string; start: string; end: string }>>([]);
   const [isLoadingCalendar, setIsLoadingCalendar] = useState<boolean>(false);
   const [conflictLabels, setConflictLabels] = useState<Record<string, Record<number, string[]>>>({});
+  const [eventSpans, setEventSpans] = useState<Record<string, Array<{ id: string; title: string; start: number; end: number }>>>({});
   // Debounced save controls to prevent overlapping server writes
   const saveTimerRef = useRef<number | null>(null);
   const savingRef = useRef<boolean>(false);
@@ -654,11 +655,12 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
 
     // 1) 기본: 모든 날의 9-23시를 '가능'으로 채움
     const nextAvailability: Record<string, Set<number>> = {};
+    const nextEventSpans: Record<string, Array<{ id: string; title: string; start: number; end: number }>> = {};
     for (const d of days) {
       nextAvailability[d] = new Set<number>(HOURS);
     }
 
-    // 2) 이벤트가 겹치는 시간대를 '불가능'으로 삭제 + 라벨 수집
+    // 2) 이벤트가 겹치는 시간대를 '불가능'으로 삭제 + 스팬(구간) 수집
     let removedCount = 0;
     const nextLabels: Record<string, Record<number, string[]>> = {};
     for (const ev of events) {
@@ -666,30 +668,47 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
       const eventEnd = new Date(ev.end);
       if (isNaN(eventStart.getTime()) || isNaN(eventEnd.getTime())) continue;
 
+      // 각 날짜별로 이벤트가 차지하는 연속 시간대를 계산하여 하나의 스팬으로 표현
       for (const d of days) {
-        for (const h of HOURS) {
-          const hourStart = new Date(`${d}T${String(h).padStart(2, '0')}:00:00`);
-          const hourEnd = new Date(`${d}T${String(h + 1).padStart(2, '0')}:00:00`);
-          // 겹침 조건: (시작 < 시간슬롯끝) && (끝 > 시간슬롯시작)
-          // 종일 이벤트(end가 다음 날 00:00:00 형태)도 포함됨
-          if (eventStart < hourEnd && eventEnd > hourStart) {
-            if (nextAvailability[d].has(h)) {
-              nextAvailability[d].delete(h);
-              removedCount++;
-            }
-            if (!nextLabels[d]) nextLabels[d] = {};
-            if (!nextLabels[d][h]) nextLabels[d][h] = [];
-            const label = ev.summary || '이벤트';
-            if (!nextLabels[d][h].includes(label)) {
-              nextLabels[d][h].push(label);
-            }
+        // 해당 날짜의 09:00~24:00 범위로 클립
+        const dayStart = new Date(`${d}T09:00:00`);
+        // 24:00은 표준이 아니므로 23:59:59로 클립
+        const dayEnd = new Date(`${d}T23:59:59`);
+        const segStart = eventStart > dayStart ? eventStart : dayStart;
+        const segEnd = eventEnd < dayEnd ? eventEnd : dayEnd;
+        if (!(segStart < segEnd)) continue;
+
+        // 시간 인덱스 산출
+        const segStartHour = segStart.getHours() + segStart.getMinutes() / 60 + segStart.getSeconds() / 3600;
+        const segEndHour = segEnd.getHours() + segEnd.getMinutes() / 60 + segEnd.getSeconds() / 3600;
+        // 포함되는 첫/마지막 시간 슬롯 인덱스(h)
+        const startH = Math.max(9, Math.floor(segStartHour));
+        const endH = Math.min(23, Math.ceil(segEndHour) - 1);
+        if (startH > endH) continue;
+
+        // 가용성 반영 및 셀 라벨(백워드 호환) 갱신
+        for (let h = startH; h <= endH; h++) {
+          if (nextAvailability[d].has(h)) {
+            nextAvailability[d].delete(h);
+            removedCount++;
+          }
+          if (!nextLabels[d]) nextLabels[d] = {};
+          if (!nextLabels[d][h]) nextLabels[d][h] = [];
+          const label = ev.summary || '이벤트';
+          if (!nextLabels[d][h].includes(label)) {
+            nextLabels[d][h].push(label);
           }
         }
+
+        // 스팬 기록(해당 날짜 컬럼에서 하나의 블록)
+        if (!nextEventSpans[d]) nextEventSpans[d] = [];
+        nextEventSpans[d].push({ id: ev.id || `${d}-${startH}-${endH}`, title: ev.summary || '이벤트', start: startH, end: endH });
       }
     }
 
     setAvailability(nextAvailability);
     setConflictLabels(nextLabels);
+    setEventSpans(nextEventSpans);
     if (participantId) {
       updateLocalHeatmap(nextAvailability);
       await saveToServerWithState(nextAvailability);
@@ -832,6 +851,15 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
                     <td className="sticky left-0 bg-white/90 backdrop-blur p-2 text-xs whitespace-nowrap text-slate-600 z-10">{h}:00</td>
                     {days.map((d) => {
                       const selected = availability[d]?.has(h);
+                      const spans = eventSpans[d] || [];
+                      // 이 셀에서 시작하는 스팬만 상단에 테두리와 라벨로 표시
+                      const startingSpan = spans.find((sp) => sp.start === h);
+                      // 스팬 내부(시작 이후) 셀에는 테두리의 세로선만 표시
+                      const insideSpan = spans.find((sp) => sp.start < h && sp.end >= h);
+                      const isSpanStart = Boolean(startingSpan);
+                      const isSpanInside = Boolean(insideSpan);
+                      const span = startingSpan || insideSpan;
+
                       return (
                         <td
                           key={`${d}-${h}`}
@@ -844,14 +872,36 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
                           data-d={d}
                           data-h={h}
                         >
-                          {!selected && conflictLabels[d]?.[h]?.length ? (
-                            <div className="absolute inset-0 px-1 py-0.5 overflow-hidden">
-                              <div className="text-[10px] leading-tight text-blue-700 line-clamp-2 text-left">
-                                {conflictLabels[d][h].slice(0,2).join(', ')}
-                                {conflictLabels[d][h].length > 2 ? '…' : ''}
+                          {span ? (
+                            <>
+                              {/* 스팬 테두리 */}
+                              <div
+                                className="absolute inset-0 pointer-events-none"
+                                style={{
+                                  borderLeft: isSpanStart ? '2px solid rgba(59,130,246,0.8)' : '2px solid rgba(59,130,246,0.4)',
+                                  borderRight: span.end === h ? '2px solid rgba(59,130,246,0.8)' : (isSpanInside ? '2px solid rgba(59,130,246,0.4)' : 'none'),
+                                  borderTop: isSpanStart ? '2px solid rgba(59,130,246,0.8)' : 'none',
+                                  borderBottom: span.end === h ? '2px solid rgba(59,130,246,0.8)' : 'none',
+                                  borderRadius: isSpanStart || span.end === h ? 6 : 0,
+                                }}
+                              />
+                              {/* 시작 셀에만 일정명 표시 */}
+                              {isSpanStart && (
+                                <div className="absolute left-0 right-0 top-0 px-1 py-0.5 text-[10px] font-medium text-blue-700 truncate pointer-events-none bg-white/70">
+                                  {startingSpan!.title}
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            !selected && conflictLabels[d]?.[h]?.length ? (
+                              <div className="absolute inset-0 px-1 py-0.5 overflow-hidden">
+                                <div className="text-[10px] leading-tight text-blue-700 line-clamp-2 text-left">
+                                  {conflictLabels[d][h].slice(0,2).join(', ')}
+                                  {conflictLabels[d][h].length > 2 ? '…' : ''}
+                                </div>
                               </div>
-                            </div>
-                          ) : null}
+                            ) : null
+                          )}
                         </td>
                       );
                     })}

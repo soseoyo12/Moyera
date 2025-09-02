@@ -519,16 +519,23 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
 
       const scope = 'https://www.googleapis.com/auth/calendar.readonly';
       const redirectUri = `${window.location.origin}/oauth/callback`;
-      
-      const authUrl = `https://accounts.google.com/oauth/authorize?` +
-        `client_id=${clientId}&` +
+      // Use correct Google OAuth 2.0 endpoint
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+        `client_id=${encodeURIComponent(clientId)}&` +
         `redirect_uri=${encodeURIComponent(redirectUri)}&` +
         `scope=${encodeURIComponent(scope)}&` +
         `response_type=token&` +
-        `state=${shareId}`;
+        `prompt=consent&` +
+        `include_granted_scopes=true&` +
+        `state=${encodeURIComponent(shareId)}`;
 
       // Open popup for OAuth
       const popup = window.open(authUrl, 'google-auth', 'width=500,height=600');
+      // Fallback if popup blocked: redirect current window
+      if (!popup) {
+        window.location.href = authUrl;
+        return;
+      }
       
       // Listen for popup to close and get token
       const checkClosed = setInterval(() => {
@@ -577,11 +584,16 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
 
       if (res.ok) {
         const data = await res.json();
-        setCalendarEvents(data.events || []);
-        showToast(`${data.events?.length || 0}개 이벤트를 불러왔습니다`);
+        const events = data.events || [];
+        setCalendarEvents(events);
+        // 자동 적용
+        await applyCalendarEventsToGrid(events);
+        showToast(`${events.length || 0}개 이벤트를 반영했습니다`);
       } else {
-        const error = await res.json().catch(() => ({ error: "Unknown error" }));
-        showToast(`캘린더 불러오기 실패: ${error.error}`);
+        const text = await res.text();
+        let error: { error?: string; details?: string } = { error: 'Unknown error' };
+        try { error = JSON.parse(text); } catch {}
+        showToast(`캘린더 불러오기 실패: ${error.error}${error.details ? ` - ${error.details}` : ''}`);
       }
     } catch (e) {
       console.error("Calendar load error:", e);
@@ -591,50 +603,44 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
     }
   }
 
-  async function applyCalendarToGrid() {
-    if (calendarEvents.length === 0) {
-      showToast("먼저 캘린더 이벤트를 불러오세요");
-      return;
+  async function applyCalendarEventsToGrid(events: Array<{ id: string; summary: string; start: string; end: string }>) {
+    if (!events || events.length === 0) return;
+
+    // 1) 기본: 모든 날의 9-23시를 '가능'으로 채움
+    const nextAvailability: Record<string, Set<number>> = {};
+    for (const d of days) {
+      nextAvailability[d] = new Set<number>(HOURS);
     }
 
-    const newAvailability = { ...availability };
-    let appliedCount = 0;
+    // 2) 이벤트가 겹치는 시간대를 '불가능'으로 삭제
+    let removedCount = 0;
+    for (const ev of events) {
+      const eventStart = new Date(ev.start);
+      const eventEnd = new Date(ev.end);
+      if (isNaN(eventStart.getTime()) || isNaN(eventEnd.getTime())) continue;
 
-    for (const event of calendarEvents) {
-      const startTime = new Date(event.start);
-      const endTime = new Date(event.end);
-      
-      // Convert to hours and mark as unavailable
-      const startDate = startTime.toISOString().slice(0, 10);
-      const endDate = endTime.toISOString().slice(0, 10);
-      
-      // Handle single day events
-      if (startDate === endDate) {
-        const startHour = startTime.getHours();
-        const endHour = endTime.getHours();
-        
-        if (!newAvailability[startDate]) {
-          newAvailability[startDate] = new Set<number>();
-        }
-        
-        for (let h = Math.max(9, startHour); h < Math.min(24, endHour + 1); h++) {
-          if (HOURS.includes(h)) {
-            newAvailability[startDate].delete(h); // Remove from available (mark as unavailable)
-            appliedCount++;
+      for (const d of days) {
+        for (const h of HOURS) {
+          const hourStart = new Date(`${d}T${String(h).padStart(2, '0')}:00:00`);
+          const hourEnd = new Date(`${d}T${String(h + 1).padStart(2, '0')}:00:00`);
+          // 겹침 조건: (시작 < 시간슬롯끝) && (끝 > 시간슬롯시작)
+          // 종일 이벤트(end가 다음 날 00:00:00 형태)도 포함됨
+          if (eventStart < hourEnd && eventEnd > hourStart) {
+            if (nextAvailability[d].has(h)) {
+              nextAvailability[d].delete(h);
+              removedCount++;
+            }
           }
         }
       }
-      // TODO: Handle multi-day events if needed
     }
 
-    setAvailability(newAvailability);
-    
+    setAvailability(nextAvailability);
     if (participantId) {
-      updateLocalHeatmap(newAvailability);
-      await saveToServerWithState(newAvailability);
+      updateLocalHeatmap(nextAvailability);
+      await saveToServerWithState(nextAvailability);
     }
-    
-    showToast(`${appliedCount}개 시간대를 불가능으로 표시했습니다`);
+    showToast(`${removedCount}개 시간대를 불가능으로 표시했습니다`);
   }
 
   function showToast(message: string) {
@@ -699,20 +705,12 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
                       onClick={loadCalendarEvents}
                       disabled={isLoadingCalendar}
                     >
-                      {isLoadingCalendar ? "불러오는 중..." : "캘린더 불러오기"}
+                      {isLoadingCalendar ? "불러오는 중..." : "캘린더 불러오기(자동 적용)"}
                     </button>
                     {calendarEvents.length > 0 && (
-                      <>
-                        <div className="text-xs text-slate-600 bg-slate-50 p-2 rounded">
-                          {calendarEvents.length}개 이벤트 발견
-                        </div>
-                        <button 
-                          className="w-full bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm"
-                          onClick={applyCalendarToGrid}
-                        >
-                          그리드에 적용하기
-                        </button>
-                      </>
+                      <div className="text-xs text-slate-600 bg-slate-50 p-2 rounded">
+                        {calendarEvents.length}개 이벤트를 반영했습니다
+                      </div>
                     )}
                   </>
                 )}

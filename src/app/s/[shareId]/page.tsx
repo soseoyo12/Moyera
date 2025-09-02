@@ -32,6 +32,9 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
   const [cellSize, setCellSize] = useState<number>(32);
   const unavailableByKeyRef = useRef<Map<string, Set<string>>>(new Map());
   const [hoverHeat, setHoverHeat] = useState<{ d: string; h: number; names: string[] } | null>(null);
+  const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
+  const [calendarEvents, setCalendarEvents] = useState<Array<{ id: string; summary: string; start: string; end: string }>>([]);
+  const [isLoadingCalendar, setIsLoadingCalendar] = useState<boolean>(false);
 
   // Local storage removed per request
 
@@ -505,6 +508,135 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
 
   // removed day/global reset helpers per request
 
+  async function signInWithGoogle() {
+    try {
+      // Google OAuth using popup
+      const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+      if (!clientId) {
+        showToast("Google OAuth가 설정되지 않았습니다");
+        return;
+      }
+
+      const scope = 'https://www.googleapis.com/auth/calendar.readonly';
+      const redirectUri = `${window.location.origin}/oauth/callback`;
+      
+      const authUrl = `https://accounts.google.com/oauth/authorize?` +
+        `client_id=${clientId}&` +
+        `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+        `scope=${encodeURIComponent(scope)}&` +
+        `response_type=token&` +
+        `state=${shareId}`;
+
+      // Open popup for OAuth
+      const popup = window.open(authUrl, 'google-auth', 'width=500,height=600');
+      
+      // Listen for popup to close and get token
+      const checkClosed = setInterval(() => {
+        if (popup?.closed) {
+          clearInterval(checkClosed);
+          // Try to get token from localStorage (set by popup)
+          const token = localStorage.getItem('google_access_token');
+          if (token) {
+            setGoogleAccessToken(token);
+            localStorage.removeItem('google_access_token');
+            showToast("Google 로그인 성공");
+          }
+        }
+      }, 1000);
+    } catch (e) {
+      console.error("Google sign in error:", e);
+      showToast("Google 로그인 실패");
+    }
+  }
+
+  async function loadCalendarEvents() {
+    if (!googleAccessToken) {
+      showToast("먼저 Google에 로그인하세요");
+      return;
+    }
+
+    const startDateStr = start || sessionData?.start_date;
+    const endDateStr = end || sessionData?.end_date;
+    
+    if (!startDateStr || !endDateStr) {
+      showToast("날짜 정보가 없습니다");
+      return;
+    }
+
+    setIsLoadingCalendar(true);
+    try {
+      const res = await fetch('/api/gcal/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accessToken: googleAccessToken,
+          startDate: startDateStr,
+          endDate: endDateStr,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setCalendarEvents(data.events || []);
+        showToast(`${data.events?.length || 0}개 이벤트를 불러왔습니다`);
+      } else {
+        const error = await res.json().catch(() => ({ error: "Unknown error" }));
+        showToast(`캘린더 불러오기 실패: ${error.error}`);
+      }
+    } catch (e) {
+      console.error("Calendar load error:", e);
+      showToast("캘린더 불러오기 실패");
+    } finally {
+      setIsLoadingCalendar(false);
+    }
+  }
+
+  async function applyCalendarToGrid() {
+    if (calendarEvents.length === 0) {
+      showToast("먼저 캘린더 이벤트를 불러오세요");
+      return;
+    }
+
+    const newAvailability = { ...availability };
+    let appliedCount = 0;
+
+    for (const event of calendarEvents) {
+      const startTime = new Date(event.start);
+      const endTime = new Date(event.end);
+      
+      // Convert to hours and mark as unavailable
+      const startDate = startTime.toISOString().slice(0, 10);
+      const endDate = endTime.toISOString().slice(0, 10);
+      
+      // Handle single day events
+      if (startDate === endDate) {
+        const startHour = startTime.getHours();
+        const endHour = endTime.getHours();
+        
+        if (!newAvailability[startDate]) {
+          newAvailability[startDate] = new Set<number>();
+        }
+        
+        for (let h = Math.max(9, startHour); h < Math.min(24, endHour + 1); h++) {
+          if (HOURS.includes(h)) {
+            newAvailability[startDate].delete(h); // Remove from available (mark as unavailable)
+            appliedCount++;
+          }
+        }
+      }
+      // TODO: Handle multi-day events if needed
+    }
+
+    setAvailability(newAvailability);
+    
+    if (participantId) {
+      updateLocalHeatmap(newAvailability);
+      await saveToServerWithState(newAvailability);
+    }
+    
+    showToast(`${appliedCount}개 시간대를 불가능으로 표시했습니다`);
+  }
+
   function showToast(message: string) {
     setToast(message);
     setTimeout(() => setToast(""), 1600);
@@ -538,9 +670,60 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
               </button>
             </div>
           )}
+          
+          {/* Google Calendar Integration */}
+          {participantId && (
+            <div className="mt-3 border-t pt-3">
+              <h4 className="text-sm font-medium text-slate-700">Google Calendar 연동</h4>
+              <div className="mt-2 space-y-2">
+                {!googleAccessToken ? (
+                  <button 
+                    className="w-full border px-3 py-2 rounded-lg text-sm hover:bg-slate-50 hover:border-slate-300 flex items-center justify-center gap-2"
+                    onClick={signInWithGoogle}
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                    </svg>
+                    Google 로그인
+                  </button>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded">✓ Google 연결됨</span>
+                    </div>
+                    <button 
+                      className="w-full border px-3 py-2 rounded-lg text-sm hover:bg-slate-50 hover:border-slate-300"
+                      onClick={loadCalendarEvents}
+                      disabled={isLoadingCalendar}
+                    >
+                      {isLoadingCalendar ? "불러오는 중..." : "캘린더 불러오기"}
+                    </button>
+                    {calendarEvents.length > 0 && (
+                      <>
+                        <div className="text-xs text-slate-600 bg-slate-50 p-2 rounded">
+                          {calendarEvents.length}개 이벤트 발견
+                        </div>
+                        <button 
+                          className="w-full bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm"
+                          onClick={applyCalendarToGrid}
+                        >
+                          그리드에 적용하기
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button className="border px-3 py-2 rounded-lg text-sm col-span-2 hover:bg-slate-50 hover:border-slate-300" onClick={copyLink}>링크 복사</button>
           </div>
+
           <div className="mt-5">
             <h4 className="text-sm font-medium">참여자 ({participantsCount})</h4>
             <ul className="mt-2 space-y-1 max-h-48 overflow-auto pr-1">

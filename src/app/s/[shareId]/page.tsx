@@ -28,6 +28,7 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
   const dragActiveRef = useRef<boolean>(false);
   const dragSetToAvailableRef = useRef<boolean>(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionData, setSessionData] = useState<{ start_date: string; end_date: string } | null>(null);
   const [cellSize, setCellSize] = useState<number>(32);
   const unavailableByKeyRef = useRef<Map<string, Set<string>>>(new Map());
   const [hoverHeat, setHoverHeat] = useState<{ d: string; h: number; names: string[] } | null>(null);
@@ -41,7 +42,13 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
         const res = await fetch(`/api/sessions/${shareId}`);
         if (!res.ok) return;
         const data = await res.json();
-        if (data?.session?.id) setSessionId(data.session.id);
+        if (data?.session?.id) {
+          setSessionId(data.session.id);
+          setSessionData({
+            start_date: data.session.start_date,
+            end_date: data.session.end_date
+          });
+        }
       } catch {}
     })();
   }, [shareId]);
@@ -226,31 +233,22 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
   }, [shareId, sessionId]);
 
   const days = useMemo(() => {
-    if (!start || !end) return [] as string[];
-    const startDate = new Date(start);
-    const endDate = new Date(end);
+    // Use URL params first, fallback to session data
+    const startDateStr = start || sessionData?.start_date;
+    const endDateStr = end || sessionData?.end_date;
+    
+    if (!startDateStr || !endDateStr) return [] as string[];
+    
+    const startDate = new Date(startDateStr);
+    const endDate = new Date(endDateStr);
     const list: string[] = [];
     for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
       list.push(d.toISOString().slice(0, 10));
     }
     return list;
-  }, [start, end]);
+  }, [start, end, sessionData]);
 
-  async function toggle(d: string, h: number) {
-    if (!participantId) {
-      showToast("먼저 아이디로 참가하세요");
-      return;
-    }
-    setAvailability((prev) => {
-      const copy: Record<string, Set<number>> = { ...prev };
-      const set = new Set(copy[d] || []);
-      if (set.has(h)) set.delete(h); else set.add(h);
-      copy[d] = set;
-      return copy;
-    });
-    // Auto save after each toggle if joined
-    await saveToServer();
-  }
+
 
   function beginDrag(d: string, h: number) {
     if (!participantId) {
@@ -265,15 +263,21 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
   }
 
   async function applyDragToCell(d: string, h: number) {
-    setAvailability((prev) => {
-      const copy: Record<string, Set<number>> = { ...prev };
-      const set = new Set(copy[d] || []);
-      if (dragSetToAvailableRef.current) set.add(h); else set.delete(h);
-      copy[d] = set;
-      return copy;
-    });
+    // Calculate new availability state
+    const currentState = { ...availability };
+    const currentSet = new Set(currentState[d] || []);
+    if (dragSetToAvailableRef.current) {
+      currentSet.add(h);
+    } else {
+      currentSet.delete(h);
+    }
+    currentState[d] = currentSet;
+    
+    // Update state
+    setAvailability(currentState);
+    
     if (participantId) {
-      await saveToServer();
+      await saveToServerWithState(currentState);
     }
   }
 
@@ -359,18 +363,40 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
     }
   }
 
-  async function saveToServer() {
+  async function saveToServerWithState(currentAvailability: Record<string, Set<number>>) {
     if (!participantId) {
       showToast("먼저 참가자로 참여해 주세요");
       return;
     }
+    
+    // Check if days array is ready
+    if (!days || days.length === 0) {
+      console.warn("Days array not ready, skipping save");
+      showToast("날짜 정보 로딩 중...");
+      return;
+    }
+    
+    console.log("Debug - saveToServerWithState:", {
+      days,
+      currentAvailability,
+      availabilityKeys: Object.keys(currentAvailability),
+      participantId
+    });
+    
     const payload: { d: string; h: number }[] = [];
     for (const d of days) {
-      const set = availability[d] || new Set<number>();
-      for (const h of HOURS) {
-        if (!set.has(h)) payload.push({ d, h });
+      // Safe access with explicit check
+      if (d && currentAvailability && typeof currentAvailability === 'object') {
+        const set = currentAvailability[d] || new Set<number>();
+        for (const h of HOURS) {
+          if (!set.has(h)) payload.push({ d, h });
+        }
+      } else {
+        console.warn(`Skipping day ${d}, currentAvailability invalid:`, currentAvailability);
       }
     }
+    
+    console.log("Saving to server:", { participantId, days, payload });
     setLoading(true);
     try {
       const res = await fetch(`/api/sessions/${shareId}/unavailabilities`, {
@@ -378,9 +404,17 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ participantId, unavailable: payload }),
       });
-      if (res.ok) showToast("서버에 저장되었습니다"); else showToast("서버 저장 실패");
+      
+      if (res.ok) {
+        showToast("서버에 저장되었습니다");
+      } else {
+        const errorData = await res.json().catch(() => ({ error: "unknown" }));
+        console.error("Save failed:", res.status, errorData);
+        showToast(`서버 저장 실패 (${res.status}): ${errorData.error || "unknown"}`);
+      }
     } catch (e) {
-      console.error(e);
+      console.error("Save error:", e);
+      showToast("네트워크 오류로 저장 실패");
     } finally {
       setLoading(false);
     }
@@ -487,7 +521,6 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
                           style={{ width: cellSize, height: cellSize, minWidth: cellSize, minHeight: cellSize }}
                           onMouseDown={() => beginDrag(d, h)}
                           onMouseEnter={() => onCellMouseEnter(d, h)}
-                          onClick={() => toggle(d, h)}
                           onTouchStart={(e) => handleTouchStart(e, d, h)}
                           title={`${d} ${h}:00 ${selected ? "가능" : "기본(미선택)"}`}
                           data-d={d}

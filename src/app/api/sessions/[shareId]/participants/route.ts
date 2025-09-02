@@ -7,13 +7,13 @@ function assertSupabaseConfigured() {
   return Boolean(url && serviceKey);
 }
 
-export async function GET(_req: Request, { params }: { params: { shareId: string } }) {
+export async function GET(_req: Request, context: any) {
   if (!assertSupabaseConfigured()) {
     return NextResponse.json({ error: "supabase_not_configured" }, { status: 500 });
   }
 
   const supabase = getSupabaseServerClient();
-  const { shareId } = params;
+  const { shareId } = context.params || {};
 
   const { data: session, error: sessionErr } = await supabase
     .from("sessions")
@@ -33,13 +33,13 @@ export async function GET(_req: Request, { params }: { params: { shareId: string
   return NextResponse.json({ participants });
 }
 
-export async function POST(req: Request, { params }: { params: { shareId: string } }) {
+export async function POST(req: Request, context: any) {
   if (!assertSupabaseConfigured()) {
     return NextResponse.json({ error: "supabase_not_configured" }, { status: 500 });
   }
 
   const supabase = getSupabaseServerClient();
-  const { shareId } = params;
+  const { shareId } = context.params || {};
   const body = await req.json().catch(() => ({}));
   const { name, showDetails } = body as { name?: string; showDetails?: boolean };
   const trimmed = typeof name === 'string' ? name.trim() : '';

@@ -486,6 +486,7 @@ export default function SessionPage({ params }: { params: { shareId: string } })
                           style={{ width: cellSize, height: cellSize, minWidth: cellSize, minHeight: cellSize }}
                           onMouseDown={() => beginDrag(d, h)}
                           onMouseEnter={() => onCellMouseEnter(d, h)}
+                          onClick={() => toggle(d, h)}
                           onTouchStart={(e) => handleTouchStart(e, d, h)}
                           title={`${d} ${h}:00 ${selected ? "가능" : "기본(미선택)"}`}
                           data-d={d}

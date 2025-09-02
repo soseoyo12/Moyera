@@ -73,6 +73,96 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
     }
   }
 
+  function updateLocalHeatmap(currentUserAvailability: Record<string, Set<number>>) {
+    // Quick local update: modify current heatmap with user's changes
+    if (!participantId) return;
+    
+    const updatedHeatmap = { ...heatmap };
+    const currentUserUnavailable = new Set<string>();
+    
+    // Calculate current user's unavailable slots
+    for (const d of days) {
+      const set = currentUserAvailability[d] || new Set<number>();
+      for (const h of HOURS) {
+        if (!set.has(h)) {
+          currentUserUnavailable.add(`${d}-${h}`);
+        }
+      }
+    }
+    
+    // Update heatmap based on current user's changes
+    for (const d of days) {
+      if (!updatedHeatmap[d]) updatedHeatmap[d] = {};
+      for (const h of HOURS) {
+        const key = `${d}-${h}`;
+        const currentHeat = heatmap[d]?.[h] ?? 0;
+        
+        // Estimate: if current user was previously unavailable but now available, +1
+        // if current user was previously available but now unavailable, -1
+        const wasUnavailable = unavailableByKeyRef.current.get(key)?.has(participantId) ?? false;
+        const isNowUnavailable = currentUserUnavailable.has(key);
+        
+        let newHeat = currentHeat;
+        if (wasUnavailable && !isNowUnavailable) {
+          newHeat = Math.min(participantsCount, currentHeat + 1);
+        } else if (!wasUnavailable && isNowUnavailable) {
+          newHeat = Math.max(0, currentHeat - 1);
+        }
+        
+        updatedHeatmap[d][h] = newHeat;
+      }
+    }
+    
+    setHeatmap(updatedHeatmap);
+    
+    // Quick update of best blocks (simplified calculation)
+    updateBestBlocksFromHeatmap(updatedHeatmap);
+  }
+  
+  function updateBestBlocksFromHeatmap(currentHeatmap: Record<string, Record<number, number>>) {
+    // Simplified best blocks calculation for immediate feedback
+    const candidates: Array<{ day: string; start: number; end: number; length: number; availableCount: number; names: string[] }> = [];
+    
+    for (const d of days) {
+      for (let i = 0; i < HOURS.length; i++) {
+        for (let j = i + 1; j < HOURS.length; j++) {
+          const startH = HOURS[i];
+          const endH = HOURS[j];
+          const length = endH - startH + 1;
+          if (length < 2) continue;
+          
+          // Find minimum available count in the range
+          let minAvailable = Infinity;
+          for (let k = i; k <= j; k++) {
+            const hour = HOURS[k];
+            const available = currentHeatmap[d]?.[hour] ?? 0;
+            minAvailable = Math.min(minAvailable, available);
+          }
+          
+          if (minAvailable > 0 && minAvailable !== Infinity) {
+            candidates.push({ 
+              day: d, 
+              start: startH, 
+              end: endH, 
+              length, 
+              availableCount: minAvailable, 
+              names: [`${minAvailable}명 가능`] // Simplified
+            });
+          }
+        }
+      }
+    }
+    
+    candidates.sort((a, b) => {
+      if (b.availableCount !== a.availableCount) return b.availableCount - a.availableCount;
+      if (b.length !== a.length) return b.length - a.length;
+      if (a.day !== b.day) return a.day.localeCompare(b.day);
+      return a.start - b.start;
+    });
+    
+    setBestBlocks(candidates.slice(0, 10));
+  }
+
   function computeHeatmapAndBest(list: Array<{ id: string; name: string; unavailabilities?: { d: string; h: number }[] }>) {
     const unavailableByKey = new Map<string, Set<string>>(); // key = `${d}-${h}`, value = set of participantId
     const submitted = list.filter((p) => (p.unavailabilities?.length || 0) > 0);
@@ -217,10 +307,10 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
           refreshAggregates();
         }
       );
-      // also poll every 4s as a fallback in case realtime is delayed
+      // also poll every 2s as a fallback in case realtime is delayed
       const interval = setInterval(() => {
         refreshAggregates();
-      }, 4000);
+      }, 2000);
       channel.subscribe();
       return () => {
         supabase.removeChannel(channel);
@@ -276,7 +366,9 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
     // Update state
     setAvailability(currentState);
     
+    // Immediately update local heatmap for instant feedback
     if (participantId) {
+      updateLocalHeatmap(currentState);
       await saveToServerWithState(currentState);
     }
   }
@@ -376,13 +468,6 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
       return;
     }
     
-    console.log("Debug - saveToServerWithState:", {
-      days,
-      currentAvailability,
-      availabilityKeys: Object.keys(currentAvailability),
-      participantId
-    });
-    
     const payload: { d: string; h: number }[] = [];
     for (const d of days) {
       // Safe access with explicit check
@@ -391,12 +476,8 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
         for (const h of HOURS) {
           if (!set.has(h)) payload.push({ d, h });
         }
-      } else {
-        console.warn(`Skipping day ${d}, currentAvailability invalid:`, currentAvailability);
       }
     }
-    
-    console.log("Saving to server:", { participantId, days, payload });
     setLoading(true);
     try {
       const res = await fetch(`/api/sessions/${shareId}/unavailabilities`, {
@@ -407,6 +488,8 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
       
       if (res.ok) {
         showToast("서버에 저장되었습니다");
+        // Immediately refresh aggregates for faster UI update
+        refreshAggregates();
       } else {
         const errorData = await res.json().catch(() => ({ error: "unknown" }));
         console.error("Save failed:", res.status, errorData);

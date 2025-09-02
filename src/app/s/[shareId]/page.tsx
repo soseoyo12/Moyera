@@ -36,6 +36,11 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
   const [calendarEvents, setCalendarEvents] = useState<Array<{ id: string; summary: string; start: string; end: string }>>([]);
   const [isLoadingCalendar, setIsLoadingCalendar] = useState<boolean>(false);
   const [conflictLabels, setConflictLabels] = useState<Record<string, Record<number, string[]>>>({});
+  // Debounced save controls to prevent overlapping server writes
+  const saveTimerRef = useRef<number | null>(null);
+  const savingRef = useRef<boolean>(false);
+  const pendingStateRef = useRef<Record<string, Set<number>> | null>(null);
+  const saveAgainRef = useRef<boolean>(false);
 
   // Local storage removed per request
 
@@ -165,6 +170,39 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
     });
     
     setBestBlocks(candidates.slice(0, 10));
+  }
+
+  function scheduleSave(currentState: Record<string, Set<number>>) {
+    pendingStateRef.current = currentState;
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    // Debounce saves to avoid rapid overlapping requests during drag
+    saveTimerRef.current = window.setTimeout(() => {
+      flushSave();
+    }, 350);
+  }
+
+  async function flushSave() {
+    if (savingRef.current) {
+      // Ensure we perform another save when the current one finishes
+      saveAgainRef.current = true;
+      return;
+    }
+    const stateToSave = pendingStateRef.current;
+    if (!stateToSave) return;
+    savingRef.current = true;
+    try {
+      await saveToServerWithState(stateToSave);
+    } finally {
+      savingRef.current = false;
+      // If there was another change while saving, immediately flush again
+      if (saveAgainRef.current) {
+        saveAgainRef.current = false;
+        await flushSave();
+      }
+    }
   }
 
   function computeHeatmapAndBest(list: Array<{ id: string; name: string; unavailabilities?: { d: string; h: number }[] }>) {
@@ -373,7 +411,8 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
     // Immediately update local heatmap for instant feedback
     if (participantId) {
       updateLocalHeatmap(currentState);
-      await saveToServerWithState(currentState);
+      // Schedule a debounced save instead of saving every cell
+      scheduleSave(currentState);
     }
   }
 
@@ -398,6 +437,12 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
 
   function endDrag() {
     dragActiveRef.current = false;
+    // Flush any pending save immediately when drag ends for responsiveness
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    void flushSave();
   }
 
   function onCellMouseEnter(d: string, h: number) {

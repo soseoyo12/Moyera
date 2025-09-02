@@ -20,7 +20,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ shareId
     .select("id")
     .eq("share_id", shareId)
     .maybeSingle();
-  if (sessionErr) return NextResponse.json({ error: "fetch_session_failed" }, { status: 500 });
+  if (sessionErr) {
+    console.error("unavailabilities: fetch_session_failed", { shareId, error: sessionErr });
+    return NextResponse.json({ error: "fetch_session_failed", details: sessionErr.message }, { status: 500 });
+  }
   if (!session) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
   // For now, fetch all unavailabilities grouped by participant
@@ -64,7 +67,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ shareId
     .eq("id", body.participantId)
     .eq("session_id", session.id)
     .maybeSingle();
-  if (perr) return NextResponse.json({ error: "participant_check_failed" }, { status: 500 });
+  if (perr) {
+    console.error("unavailabilities: participant_check_failed", { participantId: body.participantId, error: perr });
+    return NextResponse.json({ error: "participant_check_failed", details: perr.message }, { status: 500 });
+  }
   if (!p) return NextResponse.json({ error: "participant_not_found" }, { status: 404 });
 
   // Upsert: delete old rows then insert new ones
@@ -72,7 +78,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ shareId
     .from("unavailabilities")
     .delete()
     .eq("participant_id", body.participantId);
-  if (del.error) return NextResponse.json({ error: "delete_failed" }, { status: 500 });
+  if (del.error) {
+    console.error("unavailabilities: delete_failed", { participantId: body.participantId, error: del.error });
+    return NextResponse.json({ error: "delete_failed", details: del.error.message }, { status: 500 });
+  }
 
   const unavailable = Array.isArray(body.unavailable)
     ? body.unavailable
@@ -86,10 +95,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ shareId
   }
 
   if (unavailable.length > 0) {
+    const rows = unavailable.map((u) => ({ participant_id: body.participantId!, d: u.d, h: u.h }));
     const insert = await supabase
       .from("unavailabilities")
-      .insert(unavailable.map((u) => ({ participant_id: body.participantId!, d: u.d, h: u.h })));
-    if (insert.error) return NextResponse.json({ error: "insert_failed" }, { status: 500 });
+      .upsert(rows, { onConflict: "participant_id,d,h" });
+    if (insert.error) {
+      console.error("unavailabilities: upsert_failed", { participantId: body.participantId, count: rows.length, error: insert.error });
+      return NextResponse.json({ error: "upsert_failed", details: insert.error.message }, { status: 500 });
+    }
   }
 
   // mark participant as submitted

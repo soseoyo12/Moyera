@@ -45,6 +45,8 @@ export default function RootLayout({
             <Link href="/" className="font-semibold rounded px-2 py-1 text-[#0A84FF] hover:bg-slate-50">Moyera</Link>
             <nav className="text-sm/6 flex gap-1">
               <Link href="/new" className="rounded px-2 py-1 text-slate-700 hover:text-[#0A84FF] hover:bg-slate-50">새 세션</Link>
+              <Link href="/privacy" className="rounded px-2 py-1 text-slate-700 hover:text-[#0A84FF] hover:bg-slate-50">Privacy</Link>
+              <Link href="/terms" className="rounded px-2 py-1 text-slate-700 hover:text-[#0A84FF] hover:bg-slate-50">Terms</Link>
             </nav>
           </div>
         </header>

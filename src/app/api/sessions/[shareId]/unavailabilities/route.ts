@@ -7,13 +7,13 @@ function assertSupabaseConfigured() {
   return Boolean(url && serviceKey);
 }
 
-export async function GET(_req: Request, { params }: { params: { shareId: string } }) {
+export async function GET(_req: Request, { params }: { params: Promise<{ shareId: string }> }) {
   if (!assertSupabaseConfigured()) {
     return NextResponse.json({ error: "supabase_not_configured" }, { status: 500 });
   }
 
   const supabase = getSupabaseServerClient();
-  const { shareId } = params;
+  const { shareId } = await params;
 
   const { data: session, error: sessionErr } = await supabase
     .from("sessions")
@@ -33,13 +33,13 @@ export async function GET(_req: Request, { params }: { params: { shareId: string
   return NextResponse.json({ participants: data });
 }
 
-export async function POST(req: Request, { params }: { params: { shareId: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ shareId: string }> }) {
   if (!assertSupabaseConfigured()) {
     return NextResponse.json({ error: "supabase_not_configured" }, { status: 500 });
   }
 
   const supabase = getSupabaseServerClient();
-  const { shareId } = params;
+  const { shareId } = await params;
   const body = (await req.json().catch(() => null)) as {
     participantId?: string;
     unavailable?: { d: string; h: number }[];

@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { use } from "react";
 
 // Simple 9-23 grid builder
 const HOURS = Array.from({ length: 15 }, (_, i) => i + 9);
 
-export default function SessionPage({ params }: { params: { shareId: string } }) {
-  const { shareId } = params;
+export default function SessionPage({ params }: { params: Promise<{ shareId: string }> }) {
+  const { shareId } = use(params);
   const search = useSearchParams();
   // const tz = "UTC"; // reserved for future timezone features
   const start = search.get("start");

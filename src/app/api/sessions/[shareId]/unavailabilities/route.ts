@@ -103,7 +103,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ shareId
       if (!arr.includes(r.h)) arr.push(r.h);
       byDay.set(r.d, arr);
     }
-    const deletions: Promise<any>[] = [];
+    const deletions: Array<ReturnType<typeof supabase.from>> = [] as unknown as Array<ReturnType<typeof supabase.from>>;
     for (const [d, hours] of byDay.entries()) {
       if (hours.length === 0) {
         deletions.push(

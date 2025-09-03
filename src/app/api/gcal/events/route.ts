@@ -53,7 +53,7 @@ export async function POST(req: Request) {
         const ttext = await ti.text();
         return NextResponse.json({ error: 'Invalid access token', details: ttext }, { status: 401 });
       }
-    } catch (e) {
+    } catch {
       // Non-fatal; continue to Calendar API call
     }
 

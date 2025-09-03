@@ -103,32 +103,29 @@ export async function POST(req: Request, { params }: { params: Promise<{ shareId
       if (!arr.includes(r.h)) arr.push(r.h);
       byDay.set(r.d, arr);
     }
-    const deletions: Array<ReturnType<typeof supabase.from>> = [] as unknown as Array<ReturnType<typeof supabase.from>>;
     for (const [d, hours] of byDay.entries()) {
       if (hours.length === 0) {
-        deletions.push(
-          supabase
-            .from("unavailabilities")
-            .delete()
-            .eq("participant_id", body.participantId!)
-            .eq("d", d)
-        );
+        const delRes = await supabase
+          .from("unavailabilities")
+          .delete()
+          .eq("participant_id", body.participantId!)
+          .eq("d", d);
+        if (delRes.error) {
+          console.error("unavailabilities: cleanup_delete_failed", { participantId: body.participantId, error: delRes.error });
+          return NextResponse.json({ error: "cleanup_delete_failed", details: delRes.error.message }, { status: 500 });
+        }
       } else {
-        deletions.push(
-          supabase
-            .from("unavailabilities")
-            .delete()
-            .eq("participant_id", body.participantId!)
-            .eq("d", d)
-            .not("h", "in", `(${hours.join(",")})`)
-        );
+        const delRes = await supabase
+          .from("unavailabilities")
+          .delete()
+          .eq("participant_id", body.participantId!)
+          .eq("d", d)
+          .not("h", "in", `(${hours.join(",")})`);
+        if (delRes.error) {
+          console.error("unavailabilities: cleanup_delete_failed", { participantId: body.participantId, error: delRes.error });
+          return NextResponse.json({ error: "cleanup_delete_failed", details: delRes.error.message }, { status: 500 });
+        }
       }
-    }
-    const delResults = await Promise.all(deletions);
-    const firstError = delResults.find((r) => r?.error)?.error;
-    if (firstError) {
-      console.error("unavailabilities: cleanup_delete_failed", { participantId: body.participantId, error: firstError });
-      return NextResponse.json({ error: "cleanup_delete_failed", details: firstError.message }, { status: 500 });
     }
   } else {
     // No unavailability means remove all rows for this participant

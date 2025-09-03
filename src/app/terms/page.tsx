@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "서비스 이용약관 · Moyera",
-  description: "Moyera(모예라) 서비스 이용약관",
+  description: "Moyera(모여라) 서비스 이용약관",
 };
 
 export default function TermsPage() {
@@ -14,7 +14,7 @@ export default function TermsPage() {
       <section className="mt-6 space-y-3 text-[15px] leading-7 text-slate-800">
         <h2 className="text-xl font-semibold">1. 목적</h2>
         <p>
-          본 약관은 이용자가 Moyera(모예라, 이하 “서비스”)를 이용함에 있어 서비스와 이용자 간 권리·의무 및 책임사항을
+          본 약관은 이용자가 Moyera(모여라, 이하 “서비스”)를 이용함에 있어 서비스와 이용자 간 권리·의무 및 책임사항을
           규정함을 목적으로 합니다.
         </p>
 

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "개인정보처리방침 · Moyera",
-  description: "Moyera(모예라) 개인정보처리방침",
+  description: "Moyera(모여라) 개인정보처리방침",
 };
 
 export default function PrivacyPage() {
@@ -13,7 +13,7 @@ export default function PrivacyPage() {
 
       <section className="mt-6 space-y-3 text-[15px] leading-7 text-slate-800">
         <p>
-          Moyera(모예라, 이하 “서비스”)는 이용자의 개인정보를 소중히 여기며, 관련 법령과 규정을 준수합니다. 본 방침은
+          Moyera(모여라, 이하 “서비스”)는 이용자의 개인정보를 소중히 여기며, 관련 법령과 규정을 준수합니다. 본 방침은
           어떤 정보를 수집·이용·보관하는지와 이용자의 권리 및 보호 조치를 설명합니다.
         </p>
 

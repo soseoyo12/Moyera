@@ -15,8 +15,22 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Moyera – 일정 조율",
-  description: "여러 사람의 가능/불가능 시간을 수집하고 최적 시간을 추천합니다.",
+  title: "모여라(Moyera) – 캘린더 공유 · 일정 조율",
+  description: "모여라(Moyera)는 링크 공유만으로 가능한 시간 수집, 히트맵, Google 캘린더 연동으로 최적 모임 시간을 추천합니다.",
+  alternates: { canonical: "https://moyera.site" },
+  openGraph: {
+    type: "website",
+    url: "https://moyera.site",
+    siteName: "모여라(Moyera)",
+    title: "모여라(Moyera) – 캘린더 공유 · 일정 조율",
+    description: "링크 공유만으로 가능한 시간 수집, 히트맵, Google 캘린더 연동으로 최적 모임 시간 추천",
+    locale: "ko_KR",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "모여라(Moyera) – 캘린더 공유 · 일정 조율",
+    description: "링크 공유만으로 가능한 시간 수집, 히트맵, Google 캘린더 연동으로 최적 모임 시간 추천",
+  },
 };
 
 export default function RootLayout({

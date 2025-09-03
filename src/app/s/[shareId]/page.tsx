@@ -42,6 +42,8 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
   const savingRef = useRef<boolean>(false);
   const pendingStateRef = useRef<Record<string, Set<number>> | null>(null);
   const saveAgainRef = useRef<boolean>(false);
+  // Debounced refresh controls for realtime updates
+  const refreshTimerRef = useRef<number | null>(null);
 
   // Local storage removed per request
 
@@ -127,6 +129,16 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
     
     // Quick update of best blocks (simplified calculation)
     updateBestBlocksFromHeatmap(updatedHeatmap);
+  }
+
+  function scheduleAggregatesRefresh(delayMs = 30) {
+    if (refreshTimerRef.current) {
+      window.clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+    refreshTimerRef.current = window.setTimeout(() => {
+      void refreshAggregates();
+    }, delayMs);
   }
   
   function updateBestBlocksFromHeatmap(currentHeatmap: Record<string, Record<number, number>>) {
@@ -337,23 +349,19 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
         sessionId
           ? { event: '*', schema: 'public', table: 'participants', filter: `session_id=eq.${sessionId}` }
           : { event: '*', schema: 'public', table: 'participants' },
-        () => {
-          refreshAggregates();
-        }
+        () => { scheduleAggregatesRefresh(20); }
       );
       channel.on(
         'postgres_changes',
         sessionId
           ? { event: '*', schema: 'public', table: 'unavailabilities' }
           : { event: '*', schema: 'public', table: 'unavailabilities' },
-        () => {
-          refreshAggregates();
-        }
+        () => { scheduleAggregatesRefresh(20); }
       );
       // also poll every 2s as a fallback in case realtime is delayed
       const interval = setInterval(() => {
         refreshAggregates();
-      }, 2000);
+      }, 300);
       channel.subscribe();
       return () => {
         supabase.removeChannel(channel);
@@ -938,12 +946,22 @@ export default function SessionPage({ params }: { params: Promise<{ shareId: str
                     {days.map((d) => {
                       const available = heatmap[d]?.[h] ?? 0;
                       const ratio = participantsCount > 0 ? available / participantsCount : 0;
-                      let cls = "bg-green-100";
-                      if (ratio === 1) cls = "bg-green-600";
-                      else if (ratio >= 0.75) cls = "bg-green-400";
-                      else if (ratio >= 0.5) cls = "bg-green-300";
-                      else if (ratio > 0) cls = "bg-green-200";
-                      else cls = "bg-slate-200";
+                      let cls = "bg-slate-200";
+                      if (participantsCount <= 4) {
+                        // 소규모 세션에서는 절대 인원 기준으로 대비를 크게
+                        if (available === 0) cls = "bg-slate-200";
+                        else if (available === 1) cls = "bg-green-400";
+                        else if (available === 2) cls = "bg-green-600";
+                        else if (available === 3) cls = "bg-green-800";
+                        else cls = "bg-green-900";
+                      } else {
+                        // 일반적으로 비율 기반으로 진하게
+                        if (ratio === 1) cls = "bg-green-900";
+                        else if (ratio >= 0.75) cls = "bg-green-700";
+                        else if (ratio >= 0.5) cls = "bg-green-500";
+                        else if (ratio > 0) cls = "bg-green-400";
+                        else cls = "bg-slate-200";
+                      }
                       return (
                         <td
                           key={`hm-${d}-${h}`}

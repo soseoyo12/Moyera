@@ -73,15 +73,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ shareId
   }
   if (!p) return NextResponse.json({ error: "participant_not_found" }, { status: 404 });
 
-  // Upsert: delete old rows then insert new ones
-  const del = await supabase
-    .from("unavailabilities")
-    .delete()
-    .eq("participant_id", body.participantId);
-  if (del.error) {
-    console.error("unavailabilities: delete_failed", { participantId: body.participantId, error: del.error });
-    return NextResponse.json({ error: "delete_failed", details: del.error.message }, { status: 500 });
-  }
+  // Upsert rows first (so there is never a window with 0 rows)
 
   const unavailable = Array.isArray(body.unavailable)
     ? body.unavailable
@@ -96,12 +88,54 @@ export async function POST(req: Request, { params }: { params: Promise<{ shareId
 
   if (unavailable.length > 0) {
     const rows = unavailable.map((u) => ({ participant_id: body.participantId!, d: u.d, h: u.h }));
-    const insert = await supabase
+    const upsertRes = await supabase
       .from("unavailabilities")
       .upsert(rows, { onConflict: "participant_id,d,h" });
-    if (insert.error) {
-      console.error("unavailabilities: upsert_failed", { participantId: body.participantId, count: rows.length, error: insert.error });
-      return NextResponse.json({ error: "upsert_failed", details: insert.error.message }, { status: 500 });
+    if (upsertRes.error) {
+      console.error("unavailabilities: upsert_failed", { participantId: body.participantId, count: rows.length, error: upsertRes.error });
+      return NextResponse.json({ error: "upsert_failed", details: upsertRes.error.message }, { status: 500 });
+    }
+
+    // Then delete extras per day to match exactly the new set
+    const byDay = new Map<string, number[]>();
+    for (const r of rows) {
+      const arr = byDay.get(r.d) || [];
+      if (!arr.includes(r.h)) arr.push(r.h);
+      byDay.set(r.d, arr);
+    }
+    const deletions: Promise<any>[] = [];
+    for (const [d, hours] of byDay.entries()) {
+      if (hours.length === 0) {
+        deletions.push(
+          supabase
+            .from("unavailabilities")
+            .delete()
+            .eq("participant_id", body.participantId!)
+            .eq("d", d)
+        );
+      } else {
+        deletions.push(
+          supabase
+            .from("unavailabilities")
+            .delete()
+            .eq("participant_id", body.participantId!)
+            .eq("d", d)
+            .not("h", "in", `(${hours.join(",")})`)
+        );
+      }
+    }
+    const delResults = await Promise.all(deletions);
+    const firstError = delResults.find((r) => r?.error)?.error;
+    if (firstError) {
+      console.error("unavailabilities: cleanup_delete_failed", { participantId: body.participantId, error: firstError });
+      return NextResponse.json({ error: "cleanup_delete_failed", details: firstError.message }, { status: 500 });
+    }
+  } else {
+    // No unavailability means remove all rows for this participant
+    const delAll = await supabase.from("unavailabilities").delete().eq("participant_id", body.participantId);
+    if (delAll.error) {
+      console.error("unavailabilities: delete_all_failed", { participantId: body.participantId, error: delAll.error });
+      return NextResponse.json({ error: "delete_all_failed", details: delAll.error.message }, { status: 500 });
     }
   }
 
